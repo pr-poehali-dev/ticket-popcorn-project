@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 import Icon from '@/components/ui/icon';
 
 type Theme = 'light' | 'dark' | 'cinema';
@@ -18,6 +21,23 @@ interface Movie {
   rating: string;
   duration: string;
   hasDrinks: boolean;
+  plot: string;
+  director: string;
+  cast: string[];
+}
+
+interface User {
+  phone: string;
+  name: string;
+}
+
+interface Purchase {
+  id: number;
+  movieTitle: string;
+  date: string;
+  seats: string;
+  total: number;
+  timestamp: string;
 }
 
 interface Seat {
@@ -37,7 +57,10 @@ const movies: Movie[] = [
     date: '1 января 2026',
     rating: '12+',
     duration: '124 мин',
-    hasDrinks: false
+    hasDrinks: false,
+    plot: 'Загадочный мотоцикл появляется в витрине магазина каждую ночь, хотя днём его там нет. Молодой механик Алекс решает раскрыть эту тайну и попадает в водоворот невероятных событий. Ему предстоит разгадать секрет, который изменит его жизнь навсегда. Психологический триллер о границах реальности и силе человеческого восприятия.',
+    director: 'Андрей Смирнов',
+    cast: ['Данила Козловский', 'Светлана Ходченкова', 'Константин Хабенский']
   },
   {
     id: 2,
@@ -48,7 +71,10 @@ const movies: Movie[] = [
     date: '1 января 2026',
     rating: '16+',
     duration: '145 мин',
-    hasDrinks: true
+    hasDrinks: true,
+    plot: 'Спустя год после разгадки тайны мотоцикла, Алекс сталкивается с новой угрозой. Древняя организация охотится за артефактом, связанным с мотоциклом. Теперь ему предстоит объединиться со старыми врагами, чтобы спасти мир от надвигающейся катастрофы. Масштабный экшн-блокбастер с потрясающими спецэффектами и головокружительными трюками на мотоциклах.',
+    director: 'Андрей Смирнов',
+    cast: ['Данила Козловский', 'Светлана Ходченкова', 'Александр Петров', 'Юлия Пересильд']
   }
 ];
 
@@ -76,6 +102,19 @@ const Index = () => {
   const [popcornCount, setPopcornCount] = useState(0);
   const [drinkCount, setDrinkCount] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('cinema_user');
+    const savedPurchases = localStorage.getItem('cinema_purchases');
+    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedPurchases) setPurchases(JSON.parse(savedPurchases));
+  }, []);
 
   const toggleSeat = (seatId: number) => {
     const seat = seats.find(s => s.id === seatId);
@@ -98,6 +137,29 @@ const Index = () => {
 
   const handlePurchase = () => {
     if (selectedSeats.length === 0) return;
+    if (!user) {
+      setShowAuth(true);
+      return;
+    }
+
+    const seatsStr = selectedSeats.map(id => {
+      const seat = seats.find(s => s.id === id);
+      return `${seat?.row}/${seat?.number}`;
+    }).join(', ');
+
+    const newPurchase: Purchase = {
+      id: Date.now(),
+      movieTitle: selectedMovie?.title || '',
+      date: selectedMovie?.date || '',
+      seats: seatsStr,
+      total: calculateTotal(),
+      timestamp: new Date().toLocaleString('ru-RU')
+    };
+
+    const updatedPurchases = [...purchases, newPurchase];
+    setPurchases(updatedPurchases);
+    localStorage.setItem('cinema_purchases', JSON.stringify(updatedPurchases));
+
     setShowSuccess(true);
     setTimeout(() => {
       setShowSuccess(false);
@@ -106,6 +168,22 @@ const Index = () => {
       setPopcornCount(0);
       setDrinkCount(0);
     }, 4000);
+  };
+
+  const handleAuth = () => {
+    if (!phoneInput || !nameInput) return;
+    const newUser = { phone: phoneInput, name: nameInput };
+    setUser(newUser);
+    localStorage.setItem('cinema_user', JSON.stringify(newUser));
+    setShowAuth(false);
+    setPhoneInput('');
+    setNameInput('');
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('cinema_user');
+    setShowProfile(false);
   };
 
   const applyTheme = (newTheme: Theme) => {
@@ -133,11 +211,26 @@ const Index = () => {
               <a href="#" className="hover-glow font-medium">Афиша</a>
               <a href="#" className="hover-glow font-medium">О кино</a>
               <a href="#" className="hover-glow font-medium">Билеты</a>
-              <a href="#" className="hover-glow font-medium">Профиль</a>
-              <a href="#" className="hover-glow font-medium">История</a>
+              {user && (
+                <button onClick={() => setShowProfile(true)} className="hover-glow font-medium">
+                  Профиль
+                </button>
+              )}
             </nav>
 
             <div className="flex items-center gap-2">
+              {user ? (
+                <Button variant="outline" size="sm" onClick={() => setShowProfile(true)}>
+                  <Icon name="User" size={18} className="mr-2" />
+                  {user.name}
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setShowAuth(true)}>
+                  <Icon name="LogIn" size={18} className="mr-2" />
+                  Войти
+                </Button>
+              )}
+              <Separator orientation="vertical" className="h-8 mx-2" />
               <Button
                 variant={theme === 'cinema' ? 'default' : 'outline'}
                 size="sm"
@@ -211,6 +304,13 @@ const Index = () => {
                 </CardHeader>
                 
                 <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground line-clamp-3">{movie.plot}</p>
+                  
+                  <div className="text-xs space-y-1">
+                    <p><strong>Режиссёр:</strong> {movie.director}</p>
+                    <p><strong>В ролях:</strong> {movie.cast.join(', ')}</p>
+                  </div>
+                  
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Icon name="Calendar" size={20} />
@@ -415,6 +515,131 @@ const Index = () => {
               }).join(', ')}</p>
               {popcornCount > 0 && <p>Попкорн: {popcornCount} шт.</p>}
               {drinkCount > 0 && <p>Напитки: {drinkCount} шт.</p>}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAuth} onOpenChange={setShowAuth}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-glow">Регистрация</DialogTitle>
+            <DialogDescription>
+              Введите ваши данные для продолжения покупки
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Имя</Label>
+              <Input
+                id="name"
+                placeholder="Введите ваше имя"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Номер телефона</Label>
+              <Input
+                id="phone"
+                placeholder="+7 (___) ___-__-__"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+              />
+            </div>
+            <Button 
+              className="w-full hover-glow" 
+              size="lg"
+              onClick={handleAuth}
+              disabled={!phoneInput || !nameInput}
+            >
+              <Icon name="UserPlus" size={20} className="mr-2" />
+              Зарегистрироваться
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showProfile} onOpenChange={setShowProfile}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-glow">Профиль пользователя</DialogTitle>
+            <DialogDescription>
+              Ваши данные и история покупок
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Icon name="User" size={24} />
+                  Личные данные
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div>
+                  <p className="text-sm text-muted-foreground">Имя</p>
+                  <p className="font-medium text-lg">{user?.name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Телефон</p>
+                  <p className="font-medium text-lg">{user?.phone}</p>
+                </div>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  className="mt-4"
+                  onClick={handleLogout}
+                >
+                  <Icon name="LogOut" size={16} className="mr-2" />
+                  Выйти
+                </Button>
+              </CardContent>
+            </Card>
+
+            <div>
+              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Icon name="History" size={24} />
+                История покупок
+              </h3>
+              
+              {purchases.length === 0 ? (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    <Icon name="ShoppingBag" size={48} className="mx-auto mb-4 opacity-50" />
+                    <p>У вас пока нет покупок</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {purchases.slice().reverse().map((purchase) => (
+                    <Card key={purchase.id} className="hover:shadow-lg transition-shadow">
+                      <CardHeader>
+                        <CardTitle className="text-lg">{purchase.movieTitle}</CardTitle>
+                        <CardDescription>{purchase.timestamp}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <p className="text-muted-foreground">Дата сеанса</p>
+                            <p className="font-medium">{purchase.date}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Места</p>
+                            <p className="font-medium">{purchase.seats}</p>
+                          </div>
+                        </div>
+                        <Separator />
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Итого</span>
+                          <span className="text-xl font-bold text-primary">{purchase.total} ₽</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>
