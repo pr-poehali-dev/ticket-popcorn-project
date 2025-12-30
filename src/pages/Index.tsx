@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
 import Icon from '@/components/ui/icon';
 
 type Theme = 'light' | 'dark' | 'cinema';
@@ -24,6 +25,9 @@ interface Movie {
   plot: string;
   director: string;
   cast: string[];
+  showtimes: string[];
+  userRating: number;
+  reviewsCount: number;
 }
 
 interface User {
@@ -37,6 +41,17 @@ interface Purchase {
   date: string;
   seats: string;
   total: number;
+  timestamp: string;
+  showtime?: string;
+  discount?: number;
+}
+
+interface Review {
+  id: number;
+  movieId: number;
+  userName: string;
+  rating: number;
+  text: string;
   timestamp: string;
 }
 
@@ -60,7 +75,10 @@ const movies: Movie[] = [
     hasDrinks: false,
     plot: 'Загадочный мотоцикл появляется в витрине магазина каждую ночь, хотя днём его там нет. Молодой механик Алекс решает раскрыть эту тайну и попадает в водоворот невероятных событий. Ему предстоит разгадать секрет, который изменит его жизнь навсегда. Психологический триллер о границах реальности и силе человеческого восприятия.',
     director: 'Андрей Смирнов',
-    cast: ['Данила Козловский', 'Светлана Ходченкова', 'Константин Хабенский']
+    cast: ['Данила Козловский', 'Светлана Ходченкова', 'Константин Хабенский'],
+    showtimes: ['10:00', '14:30', '18:00', '21:30'],
+    userRating: 4.5,
+    reviewsCount: 127
   },
   {
     id: 2,
@@ -74,7 +92,10 @@ const movies: Movie[] = [
     hasDrinks: true,
     plot: 'Спустя год после разгадки тайны мотоцикла, Алекс сталкивается с новой угрозой. Древняя организация охотится за артефактом, связанным с мотоциклом. Теперь ему предстоит объединиться со старыми врагами, чтобы спасти мир от надвигающейся катастрофы. Масштабный экшн-блокбастер с потрясающими спецэффектами и головокружительными трюками на мотоциклах.',
     director: 'Андрей Смирнов',
-    cast: ['Данила Козловский', 'Светлана Ходченкова', 'Александр Петров', 'Юлия Пересильд']
+    cast: ['Данила Козловский', 'Светлана Ходченкова', 'Александр Петров', 'Юлия Пересильд'],
+    showtimes: ['11:00', '15:30', '19:00', '22:30'],
+    userRating: 4.8,
+    reviewsCount: 213
   }
 ];
 
@@ -104,16 +125,23 @@ const Index = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showReviews, setShowReviews] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [phoneInput, setPhoneInput] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [selectedShowtime, setSelectedShowtime] = useState<string>('');
+  const [reviewText, setReviewText] = useState('');
+  const [reviewRating, setReviewRating] = useState(5);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('cinema_user');
     const savedPurchases = localStorage.getItem('cinema_purchases');
+    const savedReviews = localStorage.getItem('cinema_reviews');
     if (savedUser) setUser(JSON.parse(savedUser));
     if (savedPurchases) setPurchases(JSON.parse(savedPurchases));
+    if (savedReviews) setReviews(JSON.parse(savedReviews));
   }, []);
 
   const toggleSeat = (seatId: number) => {
@@ -127,12 +155,35 @@ const Index = () => {
     );
   };
 
+  const getDiscount = () => {
+    if (!user) return 0;
+    const purchaseCount = purchases.length;
+    if (purchaseCount >= 10) return 20;
+    if (purchaseCount >= 5) return 15;
+    if (purchaseCount >= 3) return 10;
+    return 0;
+  };
+
   const calculateTotal = () => {
     if (!selectedMovie) return 0;
     const ticketsCost = selectedSeats.length * selectedMovie.price;
     const popcornCost = popcornCount * 150;
     const drinksCost = drinkCount * 100;
-    return ticketsCost + popcornCost + drinksCost;
+    const subtotal = ticketsCost + popcornCost + drinksCost;
+    const discount = getDiscount();
+    const discountAmount = Math.round(subtotal * (discount / 100));
+    return subtotal - discountAmount;
+  };
+
+  const getMovieReviews = (movieId: number) => {
+    return reviews.filter(r => r.movieId === movieId);
+  };
+
+  const calculateAverageRating = (movieId: number) => {
+    const movieReviews = getMovieReviews(movieId);
+    if (movieReviews.length === 0) return movies.find(m => m.id === movieId)?.userRating || 0;
+    const sum = movieReviews.reduce((acc, r) => acc + r.rating, 0);
+    return Math.round((sum / movieReviews.length) * 10) / 10;
   };
 
   const handlePurchase = () => {
@@ -147,13 +198,16 @@ const Index = () => {
       return `${seat?.row}/${seat?.number}`;
     }).join(', ');
 
+    const discount = getDiscount();
     const newPurchase: Purchase = {
       id: Date.now(),
       movieTitle: selectedMovie?.title || '',
       date: selectedMovie?.date || '',
       seats: seatsStr,
       total: calculateTotal(),
-      timestamp: new Date().toLocaleString('ru-RU')
+      timestamp: new Date().toLocaleString('ru-RU'),
+      showtime: selectedShowtime,
+      discount: discount
     };
 
     const updatedPurchases = [...purchases, newPurchase];
@@ -167,6 +221,7 @@ const Index = () => {
       setSelectedSeats([]);
       setPopcornCount(0);
       setDrinkCount(0);
+      setSelectedShowtime('');
     }, 4000);
   };
 
@@ -184,6 +239,25 @@ const Index = () => {
     setUser(null);
     localStorage.removeItem('cinema_user');
     setShowProfile(false);
+  };
+
+  const handleSubmitReview = () => {
+    if (!user || !selectedMovie || !reviewText) return;
+    
+    const newReview: Review = {
+      id: Date.now(),
+      movieId: selectedMovie.id,
+      userName: user.name,
+      rating: reviewRating,
+      text: reviewText,
+      timestamp: new Date().toLocaleString('ru-RU')
+    };
+
+    const updatedReviews = [...reviews, newReview];
+    setReviews(updatedReviews);
+    localStorage.setItem('cinema_reviews', JSON.stringify(updatedReviews));
+    setReviewText('');
+    setReviewRating(5);
   };
 
   const applyTheme = (newTheme: Theme) => {
@@ -310,6 +384,23 @@ const Index = () => {
                     <p><strong>Режиссёр:</strong> {movie.director}</p>
                     <p><strong>В ролях:</strong> {movie.cast.join(', ')}</p>
                   </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: 5 }, (_, i) => (
+                        <Icon
+                          key={i}
+                          name="Star"
+                          size={16}
+                          className={i < Math.floor(calculateAverageRating(movie.id)) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-sm font-medium">{calculateAverageRating(movie.id)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({getMovieReviews(movie.id).length + movie.reviewsCount} отзывов)
+                    </span>
+                  </div>
                   
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -325,6 +416,20 @@ const Index = () => {
                     <Icon name="Ticket" size={20} className="mr-2" />
                     Купить билеты
                   </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    className="w-full" 
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedMovie(movie);
+                      setShowReviews(true);
+                    }}
+                  >
+                    <Icon name="MessageSquare" size={16} className="mr-2" />
+                    Отзывы
+                  </Button>
                 </CardContent>
               </Card>
             ))}
@@ -332,22 +437,51 @@ const Index = () => {
         </section>
       </main>
 
-      <Dialog open={!!selectedMovie} onOpenChange={() => setSelectedMovie(null)}>
+      <Dialog open={!!selectedMovie && !showReviews} onOpenChange={() => setSelectedMovie(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl text-glow">
               {selectedMovie?.title}
             </DialogTitle>
             <DialogDescription>
-              Выберите места и дополнения для просмотра
+              Выберите время сеанса, места и дополнения
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="seats" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs defaultValue="showtime" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="showtime">Время сеанса</TabsTrigger>
               <TabsTrigger value="seats">Выбор мест</TabsTrigger>
               <TabsTrigger value="extras">Попкорн и напитки</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="showtime" className="space-y-6">
+              <div className="space-y-4">
+                <h3 className="font-bold text-lg">Доступные сеансы на {selectedMovie?.date}</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {selectedMovie?.showtimes.map((time) => (
+                    <Button
+                      key={time}
+                      variant={selectedShowtime === time ? 'default' : 'outline'}
+                      size="lg"
+                      className="text-lg"
+                      onClick={() => setSelectedShowtime(time)}
+                    >
+                      <Icon name="Clock" size={20} className="mr-2" />
+                      {time}
+                    </Button>
+                  ))}
+                </div>
+                {selectedShowtime && (
+                  <div className="bg-primary/10 p-4 rounded-lg">
+                    <p className="text-center">
+                      <Icon name="CheckCircle2" size={20} className="inline mr-2 text-primary" />
+                      Выбран сеанс: <strong>{selectedShowtime}</strong>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
 
             <TabsContent value="seats" className="space-y-6">
               <div className="bg-muted p-4 rounded-lg text-center mb-6">
@@ -461,6 +595,22 @@ const Index = () => {
           </Tabs>
 
           <div className="border-t pt-6">
+            {user && getDiscount() > 0 && (
+              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <Icon name="BadgePercent" size={24} className="text-green-500" />
+                  <div>
+                    <p className="font-bold text-green-500">
+                      Скидка постоянного клиента: {getDiscount()}%
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Вы совершили {purchases.length} покупок
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-between items-center mb-4">
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">
@@ -474,6 +624,11 @@ const Index = () => {
                     Напитки: {drinkCount} × 100 ₽
                   </p>
                 )}
+                {getDiscount() > 0 && (
+                  <p className="text-sm text-green-500 font-medium">
+                    Скидка -{getDiscount()}%
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-sm text-muted-foreground">Итого:</p>
@@ -484,11 +639,12 @@ const Index = () => {
             <Button
               className="w-full hover-glow"
               size="lg"
-              disabled={selectedSeats.length === 0}
+              disabled={selectedSeats.length === 0 || !selectedShowtime}
               onClick={handlePurchase}
             >
               <Icon name="ShoppingCart" size={20} className="mr-2" />
               Купить билеты
+              {!selectedShowtime && ' (выберите время)'}
             </Button>
           </div>
         </DialogContent>
@@ -586,6 +742,24 @@ const Index = () => {
                   <p className="text-sm text-muted-foreground">Телефон</p>
                   <p className="font-medium text-lg">{user?.phone}</p>
                 </div>
+                <Separator className="my-4" />
+                <div className="bg-primary/10 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon name="Trophy" size={20} className="text-primary" />
+                    <p className="font-bold">Статус клиента</p>
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <p>Покупок совершено: <strong>{purchases.length}</strong></p>
+                    <p>Текущая скидка: <strong className="text-primary">{getDiscount()}%</strong></p>
+                    {getDiscount() < 20 && (
+                      <p className="text-muted-foreground mt-2">
+                        {getDiscount() === 0 && 'Совершите 3 покупки для скидки 10%'}
+                        {getDiscount() === 10 && 'Совершите 5 покупок для скидки 15%'}
+                        {getDiscount() === 15 && 'Совершите 10 покупок для скидки 20%'}
+                      </p>
+                    )}
+                  </div>
+                </div>
                 <Button 
                   variant="destructive" 
                   size="sm" 
@@ -626,9 +800,19 @@ const Index = () => {
                             <p className="font-medium">{purchase.date}</p>
                           </div>
                           <div>
+                            <p className="text-muted-foreground">Время</p>
+                            <p className="font-medium">{purchase.showtime || 'Не указано'}</p>
+                          </div>
+                          <div>
                             <p className="text-muted-foreground">Места</p>
                             <p className="font-medium">{purchase.seats}</p>
                           </div>
+                          {purchase.discount && purchase.discount > 0 && (
+                            <div>
+                              <p className="text-muted-foreground">Скидка</p>
+                              <p className="font-medium text-green-500">{purchase.discount}%</p>
+                            </div>
+                          )}
                         </div>
                         <Separator />
                         <div className="flex justify-between items-center">
@@ -640,6 +824,127 @@ const Index = () => {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showReviews} onOpenChange={(open) => {
+        setShowReviews(open);
+        if (!open) setSelectedMovie(null);
+      }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-glow">
+              Отзывы: {selectedMovie?.title}
+            </DialogTitle>
+            <DialogDescription>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Icon
+                      key={i}
+                      name="Star"
+                      size={20}
+                      className={i < Math.floor(calculateAverageRating(selectedMovie?.id || 0)) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}
+                    />
+                  ))}
+                </div>
+                <span className="font-bold text-lg">{calculateAverageRating(selectedMovie?.id || 0)}</span>
+                <span className="text-muted-foreground">
+                  ({getMovieReviews(selectedMovie?.id || 0).length + (selectedMovie?.reviewsCount || 0)} отзывов)
+                </span>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {user && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Оставить отзыв</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="mb-2 block">Ваша оценка</Label>
+                    <div className="flex gap-2">
+                      {Array.from({ length: 5 }, (_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setReviewRating(i + 1)}
+                          className="transition-transform hover:scale-110"
+                        >
+                          <Icon
+                            name="Star"
+                            size={32}
+                            className={i < reviewRating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="review">Ваш отзыв</Label>
+                    <Textarea
+                      id="review"
+                      placeholder="Поделитесь впечатлениями о фильме..."
+                      value={reviewText}
+                      onChange={(e) => setReviewText(e.target.value)}
+                      rows={4}
+                    />
+                  </div>
+
+                  <Button 
+                    className="w-full hover-glow" 
+                    onClick={handleSubmitReview}
+                    disabled={!reviewText}
+                  >
+                    <Icon name="Send" size={18} className="mr-2" />
+                    Отправить отзыв
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            <div>
+              <h3 className="font-bold text-lg mb-4">Отзывы зрителей</h3>
+              <div className="space-y-4">
+                {getMovieReviews(selectedMovie?.id || 0).length === 0 ? (
+                  <Card>
+                    <CardContent className="py-8 text-center text-muted-foreground">
+                      <Icon name="MessageSquare" size={48} className="mx-auto mb-4 opacity-50" />
+                      <p>Пока нет отзывов. Станьте первым!</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  getMovieReviews(selectedMovie?.id || 0).slice().reverse().map((review) => (
+                    <Card key={review.id}>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <CardTitle className="text-base">{review.userName}</CardTitle>
+                            <CardDescription className="text-xs">{review.timestamp}</CardDescription>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: 5 }, (_, i) => (
+                              <Icon
+                                key={i}
+                                name="Star"
+                                size={14}
+                                className={i < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm">{review.text}</p>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </DialogContent>
